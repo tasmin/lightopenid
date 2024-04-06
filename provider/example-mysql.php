@@ -2,8 +2,8 @@
 /**
  * This example shows several things:
  * - How a setup interface should look like.
- * - How to use a mysql table for authentication
- * - How to store associations in mysql table, instead of php sessions.
+ * - How to use a mysqli table for authentication
+ * - How to store associations in mysqli table, instead of php sessions.
  * - How to store realm authorizations.
  * - How to send AX/SREG parameters.
  * For the example to work, you need to create the necessary tables:
@@ -38,16 +38,16 @@ CREATE TABLE Associations (
  */
 require 'provider.php';
 
-mysql_connect();
-mysql_select_db('test');
+mysqli_connect();
+mysqli_select_db('test');
 
 function getUserData($handle=null)
 {
     if(isset($_POST['login'],$_POST['password'])) {
-        $login = mysql_real_escape_string($_POST['login']);
+        $login = mysqli_real_escape_string($_POST['login']);
         $password = sha1($_POST['password']);
-        $q = mysql_query("SELECT * FROM Users WHERE login = '$login' AND password = '$password'");
-        if($data = mysql_fetch_assoc($q)) {
+        $q = mysqli_query("SELECT * FROM Users WHERE login = '$login' AND password = '$password'");
+        if($data = mysqli_fetch_assoc($q)) {
             return $data;
         }
         if($handle) {
@@ -127,11 +127,11 @@ class MysqlProvider extends LightOpenIDProvider
         if(!$data) {
             return false;
         }
-        $realm = mysql_real_escape_string($realm);
-        $q = mysql_query("SELECT attributes FROM AllowedSites WHERE user = '{$data['id']}' AND realm = '$realm'");
+        $realm = mysqli_real_escape_string($realm);
+        $q = mysqli_query("SELECT attributes FROM AllowedSites WHERE user = '{$data['id']}' AND realm = '$realm'");
         
         $attrs = array();
-        if($attrs = mysql_fetch_row($q)) {
+        if($attrs = mysqli_fetch_row($q)) {
             $attrs = explode(',', $attributes[0]);
         } elseif(isset($_POST['attributes'])) {
             $attrs = array_keys($_POST['attributes']);
@@ -147,8 +147,8 @@ class MysqlProvider extends LightOpenIDProvider
         }
         
         if(isset($_POST['always'])) {
-            $attrs = mysql_real_escape_string(implode(',', array_keys($attributes)));
-            mysql_query("REPLACE INTO AllowedSites VALUES('{$data['id']}', '$realm', '$attrs')");
+            $attrs = mysqli_real_escape_string(implode(',', array_keys($attributes)));
+            mysqli_query("REPLACE INTO AllowedSites VALUES('{$data['id']}', '$realm', '$attrs')");
         }
         
         return $this->serverLocation . '?' . $data['login'];
@@ -157,15 +157,15 @@ class MysqlProvider extends LightOpenIDProvider
     function assoc_handle()
     {
         # We generate an integer assoc handle, because it's just faster to look up an integer later.
-        $q = mysql_query("SELECT MAX(id) FROM Associations");
-        $result = mysql_fetch_row($q);
+        $q = mysqli_query("SELECT MAX(id) FROM Associations");
+        $result = mysqli_fetch_row($q);
         return $q[0]+1;
     }
     
     function setAssoc($handle, $data)
     {
-        $data = mysql_real_escape_string(serialize($data));
-        mysql_query("REPLACE INTO Associations VALUES('$handle', '$data')");
+        $data = mysqli_real_escape_string(serialize($data));
+        mysqli_query("REPLACE INTO Associations VALUES('$handle', '$data')");
     }
     
     function getAssoc($handle)
@@ -173,8 +173,8 @@ class MysqlProvider extends LightOpenIDProvider
         if(!is_numeric($handle)) {
             return false;
         }
-        $q = mysql_query("SELECT data FROM Associations WHERE id = '$handle'");
-        $data = mysql_fetch_row($q);
+        $q = mysqli_query("SELECT data FROM Associations WHERE id = '$handle'");
+        $data = mysqli_fetch_row($q);
         if(!$data) {
             return false;
         }
@@ -186,7 +186,7 @@ class MysqlProvider extends LightOpenIDProvider
         if(!is_numeric($handle)) {
             return false;
         }
-        mysql_query("DELETE FROM Associations WHERE id = '$handle'");
+        mysqli_query("DELETE FROM Associations WHERE id = '$handle'");
     }
     
 }

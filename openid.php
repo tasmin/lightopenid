@@ -52,9 +52,12 @@ class LightOpenID
     public $returnUrl
          , $required = array()
          , $optional = array()
+         , $oauthNS = null
+         , $oauth = null
          , $verify_peer = null
          , $capath = null
          , $cainfo = null
+         , $maxAuthAge = null
          , $data;
     private $identity, $claimed_id;
     protected $server, $version, $trustRoot, $aliases, $identifier_select = false
@@ -89,7 +92,6 @@ class LightOpenID
         $this->returnUrl = $this->trustRoot . $uri;
 
         $this->data = ($_SERVER['REQUEST_METHOD'] === 'POST') ? $_POST : $_GET;
-
         if(!function_exists('curl_init') && !in_array('https', stream_get_wrappers())) {
             throw new ErrorException('You must have either https wrappers or curl enabled.');
         }
@@ -154,7 +156,7 @@ class LightOpenID
         return !!gethostbynamel($server);
     }
 
-    protected function request_curl($url, $method='GET', $params=array(), $update_claimed_id)
+    protected function request_curl($url, $update_claimed_id, $method='GET', $params=array())
     {
         $params = http_build_query($params, '', '&');
         $curl = curl_init($url . ($method == 'GET' && $params ? '?' . $params : ''));
@@ -262,8 +264,11 @@ class LightOpenID
         return $headers;
     }
 
-    protected function request_streams($url, $method='GET', $params=array(), $update_claimed_id)
+    protected function request_streams($url, $update_claimed_id, $method='GET', $params=array())
     {
+        //  get function args that were passed-in for later use, before we change it
+        $args = func_get_args();
+
         if(!$this->hostExists($url)) {
             throw new ErrorException("Could not connect to $url.", 404);
         }
@@ -320,7 +325,6 @@ class LightOpenID
             if(intval(substr($headers[0], strlen('HTTP/1.1 '))) == 405) {
                 # The server doesn't support HEAD, so let's emulate it with
                 # a GET.
-                $args = func_get_args();
                 $args[1] = 'GET';
                 call_user_func_array(array($this, 'request_streams'), $args);
                 return $this->headers;
@@ -355,11 +359,11 @@ class LightOpenID
     protected function request($url, $method='GET', $params=array(), $update_claimed_id=false)
     {
         if (function_exists('curl_init')
-            && (!in_array('https', stream_get_wrappers()) || !ini_get('safe_mode') && !ini_get('open_basedir'))
+            && (!in_array('https', stream_get_wrappers()) || !ini_get('open_basedir'))
         ) {
-            return $this->request_curl($url, $method, $params, $update_claimed_id);
+            return $this->request_curl($url, $update_claimed_id, $method, $params);
         }
-        return $this->request_streams($url, $method, $params, $update_claimed_id);
+        return $this->request_streams($url, $update_claimed_id, $method, $params);
     }
 
     protected function build_url($url, $parts)
@@ -567,6 +571,20 @@ class LightOpenID
         return $params;
     }
 
+    protected function oauthParams()
+    {
+        $params = array();
+        if ($this->oauth)
+        {
+            $params['openid.ns.'.$this->oauthNS] = 'http://specs.openid.net/extensions/oauth/1.0';
+            foreach ($this->oauth as $alias => $field)
+            {
+                $params['openid.'.$this->oauthNS.'.'.$alias] = $field;
+            }
+        }
+        return $params;
+    }
+
     protected function axParams()
     {
         $params = array();
@@ -622,6 +640,8 @@ class LightOpenID
             'openid.identity'   => $this->identity,
             'openid.trust_root' => $this->trustRoot,
             ) + $this->sregParams();
+         if($this->oauth !== null)
+            $params += $this->oauthParams();
 
         return $this->build_url(parse_url($this->server)
                                , array('query' => http_build_query($params, '', '&')));
@@ -646,6 +666,8 @@ class LightOpenID
             # in worst case we don't get anything in return.
             $params += $this->axParams() + $this->sregParams();
         }
+         if($this->oauth !== null)
+            $params += $this->oauthParams();
 
         if ($this->identifier_select) {
             $params['openid.identity'] = $params['openid.claimed_id']
@@ -653,6 +675,12 @@ class LightOpenID
         } else {
             $params['openid.identity'] = $this->identity;
             $params['openid.claimed_id'] = $this->claimed_id;
+        }
+
+        if ($this->maxAuthAge) {
+            $params['openid.ns.pape'] = 'http://specs.openid.net/extensions/pape/1.0';
+            $params['openid.pape.preferred_auth_policies'] = '';
+            $params['openid.pape.max_auth_age'] = $this->maxAuthAge;
         }
 
         return $this->build_url(parse_url($this->server)
@@ -732,7 +760,7 @@ class LightOpenID
             # wants to verify. stripslashes() should solve that problem, but we can't
             # use it when magic_quotes is off.
             $value = $this->data['openid_' . str_replace('.','_',$item)];
-            $params['openid.' . $item] = function_exists('get_magic_quotes_gpc') && get_magic_quotes_gpc() ? stripslashes($value) : $value;
+            $params['openid.' . $item] = $value;
 
         }
 
@@ -827,5 +855,10 @@ class LightOpenID
             return $this->getAxAttributes() + $this->getSregAttributes();
         }
         return $this->getSregAttributes();
+    }
+    
+    function getOAuthResponseParam($name)
+    {
+        return empty($this->data['openid_oauth_'.$name]) ? null : $this->data['openid_oauth_'.$name];
     }
 }
